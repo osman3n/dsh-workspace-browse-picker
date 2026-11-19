@@ -1,0 +1,16 @@
+# This bundle registers itself; it does NOT patch any shipped row.
+#
+# An earlier version of this file disabled the shipped `directory-picker` row
+# (`@deepseek-ai/dsh-host-directory-picker-auto`) and mounted the browse pair
+# instead, to force a listing backend. That is wrong: the picker service is
+# declared as a hard dependency of `@deepseek-ai/dsh-api-workspace-controller`
+# (`static inject = ["directoryPicker"]`), so removing the only implementation
+# deactivates `directoryPickerController` and breaks folder picking for the
+# whole application ("directoryPicker/list: active Service
+# directoryPickerController is unavailable").
+#
+# The folder listing now comes from this bundle's own host routes over the Host
+# web carrier (see index.js), which leaves the shipped picker untouched.
+- insert:
+    - id: workspace-browse-picker
+      name: '@osman3n/dsh-workspace-browse-picker'

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "In-app workspace folder picker",
+    "description": "Adds a hover button and a menu row on every Workspace that start a new workspace from that workspace's own folder, using an in-app folder browser that can also create a subfolder while picking. The shipped system folder dialog is left untouched."
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@osman3n/dsh-workspace-browse-picker",
+  "version": "0.4.0",
+  "description": "In-app workspace folder picker: adds a Workspace from any folder already on screen, with a hover button on every Workspace row and a matching row in its menu.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "index.js",
+    "client.js",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-context-menu"
+      ]
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/osman3n/dsh-workspace-browse-picker.git"
+  },
+  "homepage": "https://github.com/osman3n/dsh-workspace-browse-picker#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "workspace",
+    "folder-picker",
+    "directory-picker"
+  ]
+}
