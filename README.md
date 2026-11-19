@@ -3,6 +3,10 @@
 In-app folder picker for Workspaces, plus a per-Workspace "add another workspace
 from here" shortcut.
 
+![Workspace rows with the add button revealed on hover](assets/hero.png)
+
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 ## What it adds
 
 1. **A hover button in every Workspace row**, immediately left of that row's
@@ -22,6 +26,15 @@ from here" shortcut.
    render this bundle's dialog too, so every "Add workspace…" entry in the
    application opens the same in-app browser instead of the operating system's
    chooser.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![The hover button, immediately left of the row menu](assets/workspace-row.png) | ![Adding a workspace from a folder](assets/add-workspace-dialog.png) |
+| The add button appears on hover, immediately left of `...`. | Adding a folder as a Workspace, already sitting in that folder. |
+| ![The app-wide folder picker](assets/picker-override.png) | |
+| Every "Add workspace…" entry in the app opens this in-app browser. | |
 
 ## How the app-wide picker is covered without breaking it
 
@@ -123,4 +136,4 @@ Nothing to configure.
 
 Disable `@osman3n/dsh-workspace-browse-picker` in **Settings → Plugins**. This
 bundle patches no shipped row, so disabling it restores the stock application
-exactly.
+exactly.

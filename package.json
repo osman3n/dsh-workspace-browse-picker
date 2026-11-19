@@ -13,9 +13,12 @@
     "cordis.patch.yml",
     "index.js",
     "client.js",
+    "screenshots.json",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md",
+    "assets/*.png"
   ],
   "dsh": {
     "bundle": {
