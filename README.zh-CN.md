@@ -82,4 +82,4 @@ for (const name of FLOW_SLOTS) {
 
 ## 停用
 
-在 **设置 → 插件** 里停用 `@osman3n/dsh-workspace-browse-picker` 即可。本插件不修改任何内置条目，所以停用后就完全恢复原生表现。
+在 **设置 → 插件** 里停用 `@osman3n/dsh-workspace-browse-picker` 即可。本插件不修改任何内置条目，所以停用后就完全恢复原生表现。
