@@ -1032,7 +1032,36 @@ window.__ModuleLoader__.load({
       const boundLocale = locale !== null && typeof locale.bind === 'function'
         ? locale.bind(NS)
         : null;
-      const label = (key) => (boundLocale === null ? key : boundLocale(key));
+      /**
+       * The Client locale service refuses a second registration of the same
+       * namespace (`locale namespace "x" already has locale "en"`), so a
+       * hot-reloaded bundle whose first activation registered an older
+       * dictionary would render raw keys forever. Resolve through the service
+       * first, then fall back to this bundle's own dictionaries.
+       */
+      const activeLocale = () => {
+        if (locale === null || typeof locale.getSnapshot !== 'function') return 'en';
+        try {
+          const snapshot = locale.getSnapshot();
+          return snapshot !== null && snapshot !== undefined && typeof snapshot.active === 'string'
+            ? snapshot.active
+            : 'en';
+        } catch (error) {
+          return 'en';
+        }
+      };
+      const label = (key) => {
+        if (boundLocale !== null) {
+          try {
+            const resolved = boundLocale(key);
+            if (typeof resolved === 'string' && resolved !== key) return resolved;
+          } catch (error) {
+            // fall through to the local dictionary
+          }
+        }
+        const dictionary = activeLocale() === 'zh' ? ZH : EN;
+        return dictionary[key] === undefined ? key : dictionary[key];
+      };
 
       /**
        * Folder transport. These two routes belong to this bundle's own host
@@ -1105,7 +1134,10 @@ window.__ModuleLoader__.load({
       // `single` cells render the first entry in priority order, and the
       // shipped occupant sits at 0, so a negative priority replaces its
       // presentation without touching the Host composition underneath.
-      const flowInject = () => ({ listDirectory, createDirectory, pickDirectory });
+      // `t` is supplied through inject (the same way the shipped browse flow
+      // does it) so the dialog uses this bundle's dictionary even when the
+      // locale service refused a second registration after a hot reload.
+      const flowInject = () => ({ listDirectory, createDirectory, pickDirectory, t: label });
       for (const name of FLOW_SLOTS) {
         ctx.slots.inject(name, () => ctx.slots.register({
           name,
@@ -1195,6 +1227,7 @@ window.__ModuleLoader__.load({
         locale: NS,
         inject: () => ({
           hooks: { addRequest: request },
+          t: label,
           listDirectory,
           createDirectory,
           pickDirectory,
