@@ -565,6 +565,8 @@ window.__ModuleLoader__.load({
       const generation = React.useRef(0);
       const childGeneration = React.useRef(0);
       const restoredDraft = React.useRef(null);
+      /** `true` while the New-folder name field is open (`''` is a live empty draft). */
+      const editing = draft !== null;
 
       // ---- the folder currently open ------------------------------------
       React.useEffect(() => {
@@ -633,12 +635,17 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKeyDown, true);
       }, [modalBusy, draft, onClose]);
 
+      // Focus and pre-select the name ONCE, when the field appears. Depending
+      // on `draft` itself would re-run this on every keystroke, and the
+      // `select()` would swallow the next character -- the field would only
+      // ever hold one letter.
       React.useEffect(() => {
-        if (draft !== null && restoredDraft.current !== null) {
-          restoredDraft.current.focus();
-          restoredDraft.current.select();
-        }
-      }, [draft]);
+        if (!editing) return;
+        const node = restoredDraft.current;
+        if (node === null) return;
+        node.focus();
+        node.select();
+      }, [editing]);
 
       const adopt = (target) => {
         if (modalBusy) return;
@@ -809,6 +816,22 @@ window.__ModuleLoader__.load({
           }, creating ? t('dialog.creating') : t('dialog.create')),
           createError === null ? null : h('span', { className: 'wbp-error' }, createError));
 
+      // Which folder the primary acts on. This matches the shipped browser's
+      // `selected?.path ?? parent?.path`: a highlighted row wins, otherwise the
+      // folder currently open does.
+      //
+      // Two bugs lived here. (1) The primary used the open folder only, so
+      // highlighting a child and pressing it added the PARENT -- usually an
+      // existing Workspace, which `workspaces.create` resolves idempotently, so
+      // all the user saw was a new session in the old Workspace. (2) `path` is
+      // the request we sent, and it stays `''` when the dialog opens at the Host
+      // home; the resolved folder only exists on `listing.path`, so adopting the
+      // raw `path` would have sent an empty string.
+      const openPath = listing !== null && typeof listing.path === 'string' && listing.path !== ''
+        ? listing.path
+        : path;
+      const primaryTarget = selected !== null ? selected.path : openPath;
+
       const foot = h('div', { className: 'wbp-foot' },
         h('button', {
           type: 'button',
@@ -857,7 +880,8 @@ window.__ModuleLoader__.load({
           type: 'button',
           className: 'wbp-btn wbp-primary',
           disabled: inert || unavailable,
-          onClick: () => adopt(path),
+          title: primaryTarget,
+          onClick: () => adopt(primaryTarget),
         }, modalBusy ? t('dialog.busy') : t(mode === 'pick' ? 'dialog.open' : 'dialog.addCurrent')));
 
       return h('div', {
