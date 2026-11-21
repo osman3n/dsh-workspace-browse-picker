@@ -128,6 +128,22 @@ the button disappear, but it cannot take the client down.
 The button respects the ordinary Workspace-row reveal behaviour: hidden at rest,
 revealed with the rest of the row's actions on hover.
 
+### It only exists while Workspaces are grouped
+
+The sidebar has three grouping modes, and only two of them render Workspace rows:
+
+| Grouping | Workspace rows | This button |
+| --- | --- | --- |
+| `Workspace` (default) | yes | shown on hover |
+| `Workspace tree` | yes, nested | shown on hover |
+| `In one list` (`flat`) | **no** — the section is titled `Sessions` | **absent** |
+
+That is deliberate, not a defect. In `In one list` every row is
+`data-row-key="session:…"`, so there is no Workspace to add from and nothing for
+the button to anchor to; the code never injects into a Session row. If the button
+seems to be missing, check the view-options menu (the sliders icon beside the
+Workspace section header) and pick `Workspace` or `Workspace tree`.
+
 ## Settings
 
 Nothing to configure.
