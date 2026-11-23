@@ -103,6 +103,31 @@ loopback request, and refuse any path that is not absolute — checked on the
 requested string *before* resolving, so a relative path can never silently
 resolve against the Host's working directory.
 
+### They are not open to other web pages
+
+Being loopback-only is **not** a sufficient guard here, and an earlier version of
+this bundle got that wrong: the market's capability scan flagged the routes as
+having no DSH access check, and replaying the attack confirmed it. A page on any
+site could `POST` to `127.0.0.1:<port>/workspace-browse-picker/create` with
+`Content-Type: text/plain` — a *simple* request, so the browser sends it with no
+preflight at all — and a folder really was created on disk. `Host` does not save
+you: the browser writes `Host: 127.0.0.1:<port>` for a loopback target no matter
+which origin the page came from.
+
+Both routes therefore also require:
+
+| Gate | Why it holds |
+| --- | --- |
+| `Origin`, when the browser sends one, must name this exact origin | A page loaded from elsewhere always sends its own, so it is refused |
+| The `x-workspace-browse-picker: 1` header | A browser cannot attach a custom header cross-origin without a CORS preflight, and this server never grants one |
+
+A request with no `Origin` is still allowed, because ordinary same-origin `GET`s
+and non-browser callers (the offline tests, `curl`) send none — but every write
+must also carry the private header, so a hostile page cannot reach `create` by
+either route. `handleList` and `handleCreate` both check these before touching the
+filesystem; `host-test.mjs` covers cross-origin list, cross-origin create, a
+headerless write, and the legitimate client shape.
+
 The shipped native picker stays exactly as it was. When the browse dialog cannot
 reach its routes at all, the dialog says so and offers "Choose with system
 dialog…", which falls back to the shipped native chooser.
