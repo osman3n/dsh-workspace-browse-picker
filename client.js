@@ -54,6 +54,14 @@ window.__ModuleLoader__.load({
     const SIDEBAR_SLOT = '[data-slot="sidebar.workspaces"]';
     /** Same-origin base of this bundle's Host routes. */
     const ROUTE_BASE = '/workspace-browse-picker';
+    /**
+     * Every request to this bundle's own Host routes carries this header. It is
+     * not a secret — its whole job is that a browser refuses to attach a custom
+     * header to a cross-origin request without a successful CORS preflight, and
+     * the Host never grants one. That makes a cross-site `fetch` or form POST
+     * impossible, which is what closes the CSRF hole on the folder routes.
+     */
+    const ROUTE_HEADERS = { 'x-workspace-browse-picker': '1' };
     /** The three `single` folder-flow holes this bundle replaces. */
     const FLOW_SLOTS = [
       'conversation.hero.workspace.directoryFlow',
@@ -1140,13 +1148,13 @@ window.__ModuleLoader__.load({
         '/list' + (typeof path === 'string' && path !== ''
           ? '?path=' + encodeURIComponent(path)
           : ''),
-        { method: 'GET' },
+        { method: 'GET', headers: ROUTE_HEADERS },
         signal,
       );
 
       const createDirectory = (path, name) => callRoute('/create', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...ROUTE_HEADERS, 'content-type': 'application/json' },
         body: JSON.stringify({ path, name }),
       });
 

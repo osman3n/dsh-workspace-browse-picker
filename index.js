@@ -38,6 +38,12 @@ const PREFIX = '/workspace-browse-picker';
 const MAX_ENTRIES = 2000;
 const BODY_LIMIT = 65536;
 const LOCAL_ADDRESS = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/u;
+/**
+ * A header the browser refuses to attach cross-origin without a successful CORS
+ * preflight. This server never grants one, so requiring it is the CSRF gate.
+ */
+const CLIENT_HEADER = 'x-workspace-browse-picker';
+const CLIENT_HEADER_VALUE = '1';
 
 function sendJson(res, status, value) {
   try {
@@ -60,6 +66,40 @@ function sendJson(res, status, value) {
 function localHost(req) {
   const host = typeof req?.headers?.host === 'string' ? req.headers.host.trim().toLowerCase() : '';
   return host === '' || LOCAL_ADDRESS.test(host);
+}
+
+/**
+ * A page the user happens to have open is same-machine but not same-origin, and
+ * a plain HTML form or `<img>`/`fetch(mode:'no-cors')` can reach loopback with
+ * NO preflight. Checking the Host header alone does not stop that: the browser
+ * sets Host to 127.0.0.1:&lt;port&gt; for loopback requests even when the page itself
+ * came from evil.example, which is exactly how a cross-site POST used to create
+ * a folder here.
+ *
+ * Two independent gates close it, and the browser enforces both:
+ *
+ *  - `Origin`, when the browser sends one, must name this very origin. A page
+ *    loaded from another origin always sends its own, so it fails here.
+ *  - The request must carry our private header. Setting a custom header forces a
+ *    CORS preflight, and this server never answers `OPTIONS` with an allow, so a
+ *    cross-origin attempt dies before the request is even sent.
+ *
+ * A missing `Origin` is allowed because same-origin GETs and non-browser clients
+ * (the offline tests, `curl`) send none; the custom header still covers writes.
+ */
+function sameOrigin(req) {
+  const origin = req?.headers?.origin;
+  if (origin === undefined || origin === null || origin === '') return true;
+  const host = typeof req?.headers?.host === 'string' ? req.headers.host.trim().toLowerCase() : '';
+  if (host === '') return false;
+  const scheme = req?.socket?.encrypted === true ? 'https' : 'http';
+  return String(origin).trim().toLowerCase() === scheme + '://' + host;
+}
+
+/** Writes must prove they come from this bundle's own client half. */
+function carriesClientHeader(req) {
+  const value = req?.headers?.[CLIENT_HEADER];
+  return typeof value === 'string' && value.trim() === CLIENT_HEADER_VALUE;
 }
 
 /** Drain a small JSON body; anything larger is refused rather than buffered. */
@@ -203,6 +243,12 @@ async function handleList(req, res) {
   if (!localHost(req)) {
     return sendJson(res, 403, { ok: false, message: 'only the local Host may browse folders' });
   }
+  if (!sameOrigin(req)) {
+    return sendJson(res, 403, { ok: false, message: 'cross-origin browsing is not allowed' });
+  }
+  if (!carriesClientHeader(req)) {
+    return sendJson(res, 403, { ok: false, message: 'this route only serves the workspace folder dialog' });
+  }
   let requested;
   try {
     requested = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? undefined;
@@ -222,6 +268,12 @@ async function handleCreate(req, res) {
   }
   if (!localHost(req)) {
     return sendJson(res, 403, { ok: false, message: 'only the local Host may create folders' });
+  }
+  if (!sameOrigin(req)) {
+    return sendJson(res, 403, { ok: false, message: 'cross-origin folder creation is not allowed' });
+  }
+  if (!carriesClientHeader(req)) {
+    return sendJson(res, 403, { ok: false, message: 'this route only serves the workspace folder dialog' });
   }
   let body;
   try {
