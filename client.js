@@ -931,6 +931,16 @@ window.__ModuleLoader__.load({
       const request = useAddRequest((value) => value);
       const label = t('add.button');
 
+      // One settlement goes with one request: a pick-mode dialog reports either
+      // the chosen folder or a cancel, and the owner must see exactly one of
+      // them. Without this, the dialog's own post-adopt `onClose()` would fire
+      // a cancel straight after the pick.
+      //
+      // Keyed by request id, not by request identity: settling clears the store,
+      // so by the time the follow-up `onClose()` arrives the current request is
+      // already null and an identity check would let the cancel through.
+      const settledRef = React.useRef(null);
+
       // Fall back to the live service snapshot: the standard prop can arrive
       // empty (or not at all) while the sidebar itself is showing Workspaces,
       // and an empty list makes the injector skip every row.
@@ -989,16 +999,46 @@ window.__ModuleLoader__.load({
 
       if (request === null) return null;
 
+      // `mode` is carried on the request: 'add' (the row button / menu row,
+      // seeded at that Workspace's folder) or 'pick' (the app-wide folder
+      // picker, handed to us by the directoryFlow holes).
+      const mode = request.mode === 'pick' ? 'pick' : 'add';
+      const flow = request.flow;
+
+      const settle = (what, arg) => {
+        const id = request.id;
+        if (settledRef.current === id) return;
+        settledRef.current = id;
+        if (what === 'picked' && flow !== undefined && typeof flow.onPicked === 'function') {
+          flow.onPicked(arg);
+        } else if (what === 'cancel' && flow !== undefined && typeof flow.onCancel === 'function') {
+          flow.onCancel();
+        }
+        if (typeof props.clearAddRequest === 'function') props.clearAddRequest();
+      };
+
       return h(FolderDialog, {
         key: request.id,
         t,
-        mode: 'add',
+        mode,
         startPath: request.path,
         listDirectory,
         createDirectory,
         pickDirectory,
-        onAdopt: adoptWorkspace,
-        onClose: props.clearAddRequest,
+        onAdopt: (path) => {
+          if (mode === 'pick') {
+            settle('picked', path);
+            return undefined;
+          }
+          return adoptWorkspace(path);
+        },
+        onClose: () => {
+          if (mode === 'pick') {
+            settle('cancel');
+            return;
+          }
+          props.clearAddRequest();
+        },
       });
     }
 
@@ -1010,28 +1050,47 @@ window.__ModuleLoader__.load({
      * Occupant of the three `directoryFlow` holes. The owner supplies only
      * `{ open, busy, onPicked, onCancel, onError }` — notably no seed path — so
      * this entry opens at the Host's home folder and reports the chosen one.
+     *
+     * It deliberately renders NOTHING where the slot sits. All three holes live
+     * inside a sidebar column, and that column establishes a containing block
+     * for `position: fixed` (a transform/filter on an ancestor is enough), so a
+     * `position: fixed` backdrop rendered here collapses into a strip beside the
+     * section header instead of covering the frame. The dialog is therefore
+     * published to the same store the row button uses and drawn by the
+     * frame-wide `shell.overlay` entry, which has no such ancestor.
      */
     function WorkspaceFlowEntry(props) {
-      if (props.open !== true) return null;
-      const listDirectory = props.listDirectory;
-      const createDirectory = props.createDirectory;
-      const onPicked = props.onPicked;
-      const onCancel = props.onCancel;
-      const onError = props.onError;
-      const pickDirectory = props.pickDirectory;
+      const open = props.open === true;
+      const publishFlow = props.publishFlow;
+      const clearFlow = props.clearFlow;
 
-      return h(FolderDialog, {
-        t: props.t,
-        mode: 'pick',
-        startPath: '',
-        busy: props.busy === true,
-        listDirectory,
-        createDirectory,
-        pickDirectory,
-        onAdopt: (path) => onPicked(path),
-        onClose: () => onCancel(),
-        onFailure: (message) => { if (typeof onError === 'function') onError(message); },
-      });
+      // The owner rebuilds these callbacks on every render; keep the latest
+      // ones behind refs so the request published once per open still calls
+      // into current state instead of a stale closure.
+      const picked = React.useRef(props.onPicked);
+      picked.current = props.onPicked;
+      const cancel = React.useRef(props.onCancel);
+      cancel.current = props.onCancel;
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        if (typeof publishFlow !== 'function') return undefined;
+        publishFlow({
+          onPicked: (path) => {
+            if (typeof picked.current === 'function') picked.current(path);
+          },
+          onCancel: () => {
+            if (typeof cancel.current === 'function') cancel.current();
+          },
+        });
+        return () => {
+          if (typeof clearFlow === 'function') clearFlow();
+        };
+        // `open` alone: re-publishing on every render would hand the dialog a
+        // new request id and remount it, losing the folder it was showing.
+      }, [open]);
+
+      return null;
     }
 
     // -----------------------------------------------------------------------
@@ -1162,6 +1221,13 @@ window.__ModuleLoader__.load({
         ? () => uiWorkspace.pickDirectory()
         : null;
 
+      // One store drives every dialog: the row button, the "..." menu row and
+      // the app-wide picker all publish a request and the frame-wide overlay
+      // renders it. Declared before the slot registrations below, whose inject
+      // closures capture it.
+      const request = createRequestStore();
+      let nextRequestId = 0;
+
       // ---- the app-wide folder picker (slot override) ---------------------
       // `single` cells render the first entry in priority order, and the
       // shipped occupant sits at 0, so a negative priority replaces its
@@ -1169,7 +1235,17 @@ window.__ModuleLoader__.load({
       // `t` is supplied through inject (the same way the shipped browse flow
       // does it) so the dialog uses this bundle's dictionary even when the
       // locale service refused a second registration after a hot reload.
-      const flowInject = () => ({ listDirectory, createDirectory, pickDirectory, t: label });
+      const flowInject = () => ({
+        listDirectory,
+        createDirectory,
+        pickDirectory,
+        t: label,
+        publishFlow: (handlers) => {
+          nextRequestId += 1;
+          request.set({ id: nextRequestId, mode: 'pick', path: '', flow: handlers });
+        },
+        clearFlow: () => { request.set(null); },
+      });
       for (const name of FLOW_SLOTS) {
         ctx.slots.inject(name, () => ctx.slots.register({
           name,
@@ -1229,12 +1305,9 @@ window.__ModuleLoader__.load({
         return view;
       };
 
-      const request = createRequestStore();
-      let nextRequestId = 0;
-
       const requestAddWorkspace = (seed) => {
         nextRequestId += 1;
-        request.set({ id: nextRequestId, path: seed.path, workspaceId: seed.workspaceId });
+        request.set({ id: nextRequestId, mode: 'add', path: seed.path, workspaceId: seed.workspaceId });
       };
 
       ctx.effect(() => {
