@@ -1117,8 +1117,19 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const uiWorkspace = read('uiWorkspace');
-      const workspaces = read('workspaces');
+      /**
+       * The two client services this bundle drives are resolved at the moment
+       * of use, never pinned.
+       *
+       * `ctx.get()` answers with a value only while the providing fiber is
+       * ACTIVE, so on a cold page both of these can still be `null` when
+       * `apply()` runs and turn up a tick later. Pinning that first answer
+       * disabled the per-row button, the "..." menu row and the system folder
+       * picker for the whole lifetime of the window: the picker had no dialog
+       * to draw into and adopting reported a missing Workspace service.
+       */
+      const uiWorkspace = () => read('uiWorkspace');
+      const workspaces = () => read('workspaces');
 
       const boundLocale = locale !== null && typeof locale.bind === 'function'
         ? locale.bind(NS)
@@ -1217,9 +1228,19 @@ window.__ModuleLoader__.load({
         body: JSON.stringify({ path, name }),
       });
 
-      const pickDirectory = uiWorkspace !== null && typeof uiWorkspace.pickDirectory === 'function'
-        ? () => uiWorkspace.pickDirectory()
-        : null;
+      /**
+       * The system folder picker is resolved on every call for the same reason
+       * as the services above: it may only become reachable after `apply()`.
+       * Returning `null` here would drop the "Choose with the system dialog"
+       * button from the dialog permanently on a cold page.
+       */
+      const pickDirectory = () => {
+        const live = uiWorkspace();
+        if (live === null || typeof live.pickDirectory !== 'function') {
+          throw unavailable('The system folder picker is not available yet. Close this dialog and try again.');
+        }
+        return live.pickDirectory();
+      };
 
       // One store drives every dialog: the row button, the "..." menu row and
       // the app-wide picker all publish a request and the frame-wide overlay
@@ -1255,22 +1276,26 @@ window.__ModuleLoader__.load({
         }, WorkspaceFlowEntry));
       }
 
-      if (uiWorkspace === null || workspaces === null) {
-        console.warn('[workspace-browse-picker] uiWorkspace/workspaces client services are unavailable;'
-          + ' the per-row add button and its dialog stay off.');
-        return;
-      }
-
       /**
        * The authoritative Workspace list. The `useWorkspaces` standard prop is
        * the preferred source, but it is only guaranteed inside a registered
        * slot's own render; the row injector also runs from the DOM observer,
        * where a missing or stale hook value would skip every row and no button
        * would ever appear. This snapshot is the same one the sidebar renders.
+       *
+       * `workspaces` may be null — and on a cold page it can still be coming
+       * up when this bundle's `apply()` runs, because `ctx.get()` only returns
+       * services whose providing fiber is already active. Nothing here may
+       * throw in that state: the frame-wide dialog below does not need the
+       * Workspace service, and it has to be registered either way.
        */
       const readWorkspaceItems = () => {
         try {
-          const snapshot = workspaces.list && workspaces.list.getSnapshot();
+          const service = workspaces();
+          const list = service !== null ? service.list : null;
+          const snapshot = list !== null && typeof list === 'object' && typeof list.getSnapshot === 'function'
+            ? list.getSnapshot()
+            : null;
           if (snapshot !== null && typeof snapshot === 'object' && Array.isArray(snapshot.items)) {
             return snapshot.items;
           }
@@ -1283,8 +1308,10 @@ window.__ModuleLoader__.load({
       /** Re-run the row sync whenever the Workspace list changes. */
       const subscribeWorkspaceItems = (listener) => {
         try {
-          if (workspaces.list && typeof workspaces.list.subscribe === 'function') {
-            return workspaces.list.subscribe(() => { listener(); });
+          const service = workspaces();
+          const list = service !== null ? service.list : null;
+          if (list !== null && typeof list === 'object' && typeof list.subscribe === 'function') {
+            return list.subscribe(() => { listener(); });
           }
         } catch (error) {
           console.warn('[workspace-browse-picker] could not subscribe to the Workspace list:', error);
@@ -1294,10 +1321,16 @@ window.__ModuleLoader__.load({
 
       /** Register the folder as a Workspace and open a Session in it, as the shipped add flow does. */
       const adoptWorkspace = async (path) => {
-        const view = await workspaces.create({ path });
-        if (view !== null && view !== undefined && typeof uiWorkspace.startSession === 'function') {
+        const service = workspaces();
+        if (service === null || typeof service.create !== 'function') {
+          throw unavailable('The Workspace service is not available yet. Reload the window and try again.');
+        }
+        const view = await service.create({ path });
+        const ui = uiWorkspace();
+        if (view !== null && view !== undefined
+          && ui !== null && typeof ui.startSession === 'function') {
           try {
-            await uiWorkspace.startSession(view.workspaceId, { clearPreviousDraft: false });
+            await ui.startSession(view.workspaceId, { clearPreviousDraft: false });
           } catch (error) {
             console.warn('[workspace-browse-picker] could not start a Session in the new Workspace:', error);
           }
@@ -1310,21 +1343,13 @@ window.__ModuleLoader__.load({
         request.set({ id: nextRequestId, mode: 'add', path: seed.path, workspaceId: seed.workspaceId });
       };
 
-      ctx.effect(() => {
-        const menus = read('contextMenus');
-        if (menus === null) return () => {};
-        return menus.register({
-          id: 'workspace-browse-picker.add-from-folder',
-          target: 'workspace',
-          order: 150,
-          resolve: (target) => [{
-            id: 'add-from-folder',
-            label: label('menu.addHere'),
-            run: () => { requestAddWorkspace({ path: target.path, workspaceId: target.workspaceId }); },
-          }],
-        });
-      }, 'workspace-browse-picker: workspace menu row');
-
+      // Registered UNCONDITIONALLY, before the Workspace-service guard below.
+      // This entry draws the app-wide folder picker, and that picker needs no
+      // Workspace service at all; meanwhile `workspaces`/`uiWorkspace` may
+      // legitimately be null here while their fibers activate. A guard placed
+      // above this registration would delete the dialog outright: the flow
+      // occupant still renders nothing (it only publishes the request), so the
+      // picker would open onto an empty frame.
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({
         name: 'shell.overlay',
         id: 'workspace-browse-picker.dialog',
@@ -1343,6 +1368,24 @@ window.__ModuleLoader__.load({
           clearAddRequest: () => { request.set(null); },
         }),
       }, AddWorkspaceOverlay));
+
+      // The "..." menu row. Registered without a service guard: the effect
+      // already no-ops when the Client exposes no `contextMenus` service, and a
+      // guard here could only skip it for a service that shows up later anyway.
+      ctx.effect(() => {
+        const menus = read('contextMenus');
+        if (menus === null) return () => {};
+        return menus.register({
+          id: 'workspace-browse-picker.add-from-folder',
+          target: 'workspace',
+          order: 150,
+          resolve: (target) => [{
+            id: 'add-from-folder',
+            label: label('menu.addHere'),
+            run: () => { requestAddWorkspace({ path: target.path, workspaceId: target.workspaceId }); },
+          }],
+        });
+      }, 'workspace-browse-picker: workspace menu row');
     }
 
     return { inject: ['slots'], apply };

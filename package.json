@@ -1,6 +1,6 @@
 {
   "name": "@osman3n/dsh-workspace-browse-picker",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "In-app workspace folder picker: adds a Workspace from any folder already on screen, with a hover button on every Workspace row and a matching row in its menu.",
   "type": "module",
   "exports": {
